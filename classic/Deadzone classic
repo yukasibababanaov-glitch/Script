@@ -1,0 +1,985 @@
+--// deadzone classic | Tabbed GUI with Glow FOV & Sliders
+--// Telegram: @Ai_CHEAT_roblox
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+-- =================================================================
+-- STATE MANAGEMENT
+-- =================================================================
+local Settings = {
+    -- COMBAT
+    Aimbot = false,
+    AimPart = "Head", -- "Head" или "Torso"
+    BigHeads = false,
+    MaxAimDistance = 50000, -- Слайдер: 50 - 50000
+    FOV = 90,               -- Слайдер: 10 - 500
+    Smoothness = 0.2,
+    BasePrediction = 0.05,
+    
+    -- VISUALS
+    MaxEspDistance = 50000, -- Слайдер: 50 - 50000
+    ESP_Box = false,
+    ESP_Name = false,
+    ESP_Distance = false,
+    ESP_Health = false,
+    ESP_Tracer = false,
+    Highlight = false,
+    
+    -- SETTINGS / THEME
+    Theme = "Rainbow" -- "Rainbow", "Red", "Blue", "Green", "Purple"
+}
+
+-- =================================================================
+-- DRAWING OBJECTS & CACHE
+-- =================================================================
+local CachedModels = {}
+local OriginalHeadSizes = {}
+local ESP = {}
+local Highlights = {}
+
+-- 1. Основной заполненный круг FOV
+local Circle = Drawing.new("Circle")
+Circle.Visible = false
+Circle.Filled = true
+Circle.Radius = Settings.FOV
+Circle.Transparency = 0.2
+Circle.NumSides = 100
+
+-- 2. Засвеченный/подсвеченный край FOV (Outline Glow)
+local CircleOutline = Drawing.new("Circle")
+CircleOutline.Visible = false
+CircleOutline.Filled = false
+CircleOutline.Thickness = 2.5
+CircleOutline.Radius = Settings.FOV
+CircleOutline.Transparency = 1
+CircleOutline.NumSides = 100
+
+-- 3. Точка по центру FOV
+local Dot = Drawing.new("Circle")
+Dot.Visible = false
+Dot.Filled = true
+Dot.Radius = 2.5
+Dot.Transparency = 1
+Dot.NumSides = 50
+
+-- 4. Метки прицела внутри FOV (как на фото)
+local Ticks = {
+    Top = Drawing.new("Line"),
+    Bottom = Drawing.new("Line"),
+    Left = Drawing.new("Line"),
+    Right = Drawing.new("Line")
+}
+
+for _, tick in pairs(Ticks) do
+    tick.Visible = false
+    tick.Thickness = 1.5
+    tick.Transparency = 0.9
+end
+
+-- Aim Line (линия до цели)
+local Line = Drawing.new("Line")
+Line.Visible = false
+Line.Thickness = 2
+Line.Transparency = 1
+
+-- Target Name Indicator
+local NameTag = Drawing.new("Text")
+NameTag.Visible = false
+NameTag.Center = true
+NameTag.Outline = true
+NameTag.Size = 18
+NameTag.Font = 2
+
+local RainbowHue = 0
+
+-- =================================================================
+-- GUI CREATION
+-- =================================================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "DeadZoneClassicGui"
+ScreenGui.ResetOnSpawn = false
+
+if gethui then
+    ScreenGui.Parent = gethui()
+elseif syn and syn.protect_gui then
+    syn.protect_gui(ScreenGui)
+    ScreenGui.Parent = CoreGui
+else
+    ScreenGui.Parent = CoreGui
+end
+
+-- Главное Окно
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 370, 0, 340)
+MainFrame.Position = UDim2.new(0.5, -185, 0.5, -170)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 12)
+UICorner.Parent = MainFrame
+
+local MainUIStroke = Instance.new("UIStroke")
+MainUIStroke.Thickness = 2
+MainUIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+MainUIStroke.Parent = MainFrame
+
+-- Шапка
+local Title = Instance.new("TextLabel")
+Title.Name = "Title"
+Title.Size = UDim2.new(1, -70, 0, 22)
+Title.Position = UDim2.new(0, 12, 0, 8)
+Title.BackgroundTransparency = 1
+Title.Text = "deadzone classic"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 16
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Font = Enum.Font.GothamBold
+Title.Parent = MainFrame
+
+local Subtitle = Instance.new("TextLabel")
+Subtitle.Name = "Subtitle"
+Subtitle.Size = UDim2.new(1, -70, 0, 14)
+Subtitle.Position = UDim2.new(0, 12, 0, 28)
+Subtitle.BackgroundTransparency = 1
+Subtitle.Text = "Tg: @Ai_CHEAT_roblox"
+Subtitle.TextColor3 = Color3.fromRGB(140, 140, 160)
+Subtitle.TextSize = 11
+Subtitle.TextXAlignment = Enum.TextXAlignment.Left
+Subtitle.Font = Enum.Font.Gotham
+Subtitle.Parent = MainFrame
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Name = "CloseBtn"
+CloseBtn.Size = UDim2.new(0, 24, 0, 24)
+CloseBtn.Position = UDim2.new(1, -30, 0, 10)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = Color3.fromRGB(220, 220, 220)
+CloseBtn.TextSize = 12
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.Parent = MainFrame
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 6)
+CloseCorner.Parent = CloseBtn
+
+-- Кнопка открытия
+local ToggleOpenBtn = Instance.new("TextButton")
+ToggleOpenBtn.Name = "ToggleOpenBtn"
+ToggleOpenBtn.Size = UDim2.new(0, 110, 0, 45)
+ToggleOpenBtn.Position = UDim2.new(0, 20, 0, 20)
+ToggleOpenBtn.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+ToggleOpenBtn.Text = "deadzone\nclassic"
+ToggleOpenBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleOpenBtn.TextSize = 12
+ToggleOpenBtn.Font = Enum.Font.GothamBold
+ToggleOpenBtn.Visible = false
+ToggleOpenBtn.Active = true
+ToggleOpenBtn.Draggable = true
+ToggleOpenBtn.Parent = ScreenGui
+
+local ToggleOpenCorner = Instance.new("UICorner")
+ToggleOpenCorner.CornerRadius = UDim.new(0, 10)
+ToggleOpenCorner.Parent = ToggleOpenBtn
+
+local ToggleOpenStroke = Instance.new("UIStroke")
+ToggleOpenStroke.Thickness = 2
+ToggleOpenStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+ToggleOpenStroke.Parent = ToggleOpenBtn
+
+local function SetMenuVisible(visible)
+    MainFrame.Visible = visible
+    ToggleOpenBtn.Visible = not visible
+end
+
+CloseBtn.MouseButton1Click:Connect(function() SetMenuVisible(false) end)
+ToggleOpenBtn.MouseButton1Click:Connect(function() SetMenuVisible(true) end)
+
+-- Панель навигации (Табы)
+local NavFrame = Instance.new("Frame")
+NavFrame.Name = "NavFrame"
+NavFrame.Size = UDim2.new(0, 95, 1, -50)
+NavFrame.Position = UDim2.new(0, 8, 0, 45)
+NavFrame.BackgroundTransparency = 1
+NavFrame.Parent = MainFrame
+
+local NavLayout = Instance.new("UIListLayout")
+NavLayout.SortOrder = Enum.SortOrder.LayoutOrder
+NavLayout.Padding = UDim.new(0, 5)
+NavLayout.Parent = NavFrame
+
+-- Страницы
+local PagesFrame = Instance.new("Frame")
+PagesFrame.Name = "PagesFrame"
+PagesFrame.Size = UDim2.new(1, -115, 1, -50)
+PagesFrame.Position = UDim2.new(0, 108, 0, 45)
+PagesFrame.BackgroundTransparency = 1
+PagesFrame.Parent = MainFrame
+
+local Pages = {}
+local TabButtons = {}
+local ThemeStrokes = {}
+local ThemeFills = {}
+
+local function CreateTab(tabName)
+    local TabBtn = Instance.new("TextButton")
+    TabBtn.Name = tabName .. "Tab"
+    TabBtn.Size = UDim2.new(1, 0, 0, 30)
+    TabBtn.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
+    TabBtn.Text = tabName
+    TabBtn.TextColor3 = Color3.fromRGB(160, 160, 180)
+    TabBtn.TextSize = 12
+    TabBtn.Font = Enum.Font.GothamBold
+    TabBtn.Parent = NavFrame
+
+    local TabCorner = Instance.new("UICorner")
+    TabCorner.CornerRadius = UDim.new(0, 6)
+    TabCorner.Parent = TabBtn
+
+    local PageScroll = Instance.new("ScrollingFrame")
+    PageScroll.Name = tabName .. "Page"
+    PageScroll.Size = UDim2.new(1, 0, 1, 0)
+    PageScroll.BackgroundTransparency = 1
+    PageScroll.BorderSizePixel = 0
+    PageScroll.ScrollBarThickness = 2
+    PageScroll.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 100)
+    PageScroll.Visible = false
+    PageScroll.Parent = PagesFrame
+
+    local PageLayout = Instance.new("UIListLayout")
+    PageLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    PageLayout.Padding = UDim.new(0, 6)
+    PageLayout.Parent = PageScroll
+
+    PageLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        PageScroll.CanvasSize = UDim2.new(0, 0, 0, PageLayout.AbsoluteContentSize.Y + 10)
+    end)
+
+    Pages[tabName] = PageScroll
+    TabButtons[tabName] = TabBtn
+
+    TabBtn.MouseButton1Click:Connect(function()
+        for name, page in pairs(Pages) do
+            page.Visible = (name == tabName)
+        end
+        for name, btn in pairs(TabButtons) do
+            if name == tabName then
+                btn.BackgroundColor3 = Color3.fromRGB(35, 35, 48)
+                btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            else
+                btn.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
+                btn.TextColor3 = Color3.fromRGB(160, 160, 180)
+            end
+        end
+    end)
+
+    return PageScroll
+end
+
+-- Создание тумблера
+local function CreateToggle(parentPage, name, settingKey)
+    local Btn = Instance.new("TextButton")
+    Btn.Name = name .. "Btn"
+    Btn.Size = UDim2.new(1, -6, 0, 30)
+    Btn.BackgroundColor3 = Color3.fromRGB(24, 24, 32)
+    Btn.Text = "  " .. name
+    Btn.TextColor3 = Color3.fromRGB(200, 200, 210)
+    Btn.TextSize = 11
+    Btn.TextXAlignment = Enum.TextXAlignment.Left
+    Btn.Font = Enum.Font.GothamMedium
+    Btn.Parent = parentPage
+
+    local BtnCorner = Instance.new("UICorner")
+    BtnCorner.CornerRadius = UDim.new(0, 6)
+    BtnCorner.Parent = Btn
+
+    local BtnStroke = Instance.new("UIStroke")
+    BtnStroke.Thickness = 1
+    BtnStroke.Transparency = 0.6
+    BtnStroke.Parent = Btn
+    table.insert(ThemeStrokes, BtnStroke)
+
+    local StatusText = Instance.new("TextLabel")
+    StatusText.Name = "Status"
+    StatusText.Size = UDim2.new(0, 40, 1, 0)
+    StatusText.Position = UDim2.new(1, -45, 0, 0)
+    StatusText.BackgroundTransparency = 1
+    StatusText.Text = Settings[settingKey] and "ON" or "OFF"
+    StatusText.TextColor3 = Settings[settingKey] and Color3.fromRGB(0, 255, 170) or Color3.fromRGB(255, 75, 75)
+    StatusText.TextSize = 10
+    StatusText.Font = Enum.Font.GothamBold
+    StatusText.Parent = Btn
+
+    Btn.MouseButton1Click:Connect(function()
+        Settings[settingKey] = not Settings[settingKey]
+        if Settings[settingKey] then
+            StatusText.Text = "ON"
+            StatusText.TextColor3 = Color3.fromRGB(0, 255, 170)
+        else
+            StatusText.Text = "OFF"
+            StatusText.TextColor3 = Color3.fromRGB(255, 75, 75)
+        end
+    end)
+end
+
+-- Создание селектора
+local function CreateSelector(parentPage, name, settingKey, options)
+    local Btn = Instance.new("TextButton")
+    Btn.Name = name .. "Btn"
+    Btn.Size = UDim2.new(1, -6, 0, 30)
+    Btn.BackgroundColor3 = Color3.fromRGB(24, 24, 32)
+    Btn.Text = "  " .. name
+    Btn.TextColor3 = Color3.fromRGB(200, 200, 210)
+    Btn.TextSize = 11
+    Btn.TextXAlignment = Enum.TextXAlignment.Left
+    Btn.Font = Enum.Font.GothamMedium
+    Btn.Parent = parentPage
+
+    local BtnCorner = Instance.new("UICorner")
+    BtnCorner.CornerRadius = UDim.new(0, 6)
+    BtnCorner.Parent = Btn
+
+    local BtnStroke = Instance.new("UIStroke")
+    BtnStroke.Thickness = 1
+    BtnStroke.Transparency = 0.6
+    BtnStroke.Parent = Btn
+    table.insert(ThemeStrokes, BtnStroke)
+
+    local ValueText = Instance.new("TextLabel")
+    ValueText.Name = "Value"
+    ValueText.Size = UDim2.new(0, 80, 1, 0)
+    ValueText.Position = UDim2.new(1, -85, 0, 0)
+    ValueText.BackgroundTransparency = 1
+    ValueText.Text = tostring(Settings[settingKey])
+    ValueText.TextColor3 = Color3.fromRGB(0, 190, 255)
+    ValueText.TextSize = 10
+    ValueText.Font = Enum.Font.GothamBold
+    ValueText.Parent = Btn
+
+    local currentIndex = 1
+    Btn.MouseButton1Click:Connect(function()
+        currentIndex = currentIndex % #options + 1
+        Settings[settingKey] = options[currentIndex]
+        ValueText.Text = tostring(Settings[settingKey])
+    end)
+end
+
+-- СЛАЙДЕР
+local function CreateSlider(parentPage, name, settingKey, min, max, isDistance)
+    local Frame = Instance.new("Frame")
+    Frame.Name = name .. "SliderFrame"
+    Frame.Size = UDim2.new(1, -6, 0, 45)
+    Frame.BackgroundColor3 = Color3.fromRGB(24, 24, 32)
+    Frame.Parent = parentPage
+
+    local FrameCorner = Instance.new("UICorner")
+    FrameCorner.CornerRadius = UDim.new(0, 6)
+    FrameCorner.Parent = Frame
+
+    local FrameStroke = Instance.new("UIStroke")
+    FrameStroke.Thickness = 1
+    FrameStroke.Transparency = 0.6
+    FrameStroke.Parent = Frame
+    table.insert(ThemeStrokes, FrameStroke)
+
+    local Label = Instance.new("TextLabel")
+    Label.Name = "Title"
+    Label.Size = UDim2.new(1, -80, 0, 20)
+    Label.Position = UDim2.new(0, 8, 0, 2)
+    Label.BackgroundTransparency = 1
+    Label.Text = name
+    Label.TextColor3 = Color3.fromRGB(200, 200, 210)
+    Label.TextSize = 11
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Font = Enum.Font.GothamMedium
+    Label.Parent = Frame
+
+    local ValLabel = Instance.new("TextLabel")
+    ValLabel.Name = "Value"
+    ValLabel.Size = UDim2.new(0, 70, 0, 20)
+    ValLabel.Position = UDim2.new(1, -75, 0, 2)
+    ValLabel.BackgroundTransparency = 1
+    ValLabel.Text = tostring(Settings[settingKey]) .. (isDistance and "m" or "")
+    ValLabel.TextColor3 = Color3.fromRGB(0, 190, 255)
+    ValLabel.TextSize = 11
+    ValLabel.Font = Enum.Font.GothamBold
+    ValLabel.Parent = Frame
+
+    local Track = Instance.new("Frame")
+    Track.Name = "Track"
+    Track.Size = UDim2.new(1, -16, 0, 8)
+    Track.Position = UDim2.new(0, 8, 0, 26)
+    Track.BackgroundColor3 = Color3.fromRGB(40, 40, 52)
+    Track.Parent = Frame
+
+    local TrackCorner = Instance.new("UICorner")
+    TrackCorner.CornerRadius = UDim.new(1, 0)
+    TrackCorner.Parent = Track
+
+    local Fill = Instance.new("Frame")
+    Fill.Name = "Fill"
+    Fill.Size = UDim2.new((Settings[settingKey] - min) / (max - min), 0, 1, 0)
+    Fill.BackgroundColor3 = Color3.fromRGB(0, 255, 170)
+    Fill.Parent = Track
+
+    local FillCorner = Instance.new("UICorner")
+    FillCorner.CornerRadius = UDim.new(1, 0)
+    FillCorner.Parent = Fill
+    table.insert(ThemeFills, Fill)
+
+    local Knob = Instance.new("Frame")
+    Knob.Name = "Knob"
+    Knob.Size = UDim2.new(0, 14, 0, 14)
+    Knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    Knob.Position = UDim2.new(1, 0, 0.5, 0)
+    Knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    Knob.Parent = Fill
+
+    local KnobCorner = Instance.new("UICorner")
+    KnobCorner.CornerRadius = UDim.new(1, 0)
+    KnobCorner.Parent = Knob
+
+    local dragging = false
+
+    local function Update(input)
+        local pos = input.Position.X - Track.AbsolutePosition.X
+        local percentage = math.clamp(pos / Track.AbsoluteSize.X, 0, 1)
+        local value = math.floor(min + (max - min) * percentage)
+        
+        Settings[settingKey] = value
+        Fill.Size = UDim2.new(percentage, 0, 1, 0)
+        ValLabel.Text = tostring(value) .. (isDistance and "m" or "")
+        
+        if settingKey == "FOV" then
+            Circle.Radius = value
+            CircleOutline.Radius = value
+        end
+    end
+
+    Track.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            Update(input)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            Update(input)
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+end
+
+-- Инициализация Табов
+local CombatPage = CreateTab("Combat")
+local VisualsPage = CreateTab("Visuals")
+local MiscPage = CreateTab("Misc")
+local SettingsPage = CreateTab("Settings")
+
+Pages["Combat"].Visible = true
+TabButtons["Combat"].BackgroundColor3 = Color3.fromRGB(35, 35, 48)
+TabButtons["Combat"].TextColor3 = Color3.fromRGB(255, 255, 255)
+
+-- COMBAT PAGE
+CreateToggle(CombatPage, "Aimbot", "Aimbot")
+CreateSelector(CombatPage, "Aim Target", "AimPart", {"Head", "Torso"})
+CreateToggle(CombatPage, "Big Heads", "BigHeads")
+CreateSlider(CombatPage, "Aim FOV", "FOV", 10, 500, false)
+CreateSlider(CombatPage, "Aim Distance", "MaxAimDistance", 50, 50000, true)
+
+-- VISUALS PAGE
+CreateToggle(VisualsPage, "ESP Box", "ESP_Box")
+CreateToggle(VisualsPage, "ESP Name", "ESP_Name")
+CreateToggle(VisualsPage, "ESP Distance", "ESP_Distance")
+CreateToggle(VisualsPage, "ESP HealthBar", "ESP_Health")
+CreateToggle(VisualsPage, "ESP Tracers", "ESP_Tracer")
+CreateToggle(VisualsPage, "Highlight ESP", "Highlight")
+CreateSlider(VisualsPage, "ESP Distance", "MaxEspDistance", 50, 50000, true)
+
+-- MISC PAGE
+local InfoLabel = Instance.new("TextLabel")
+InfoLabel.Size = UDim2.new(1, -6, 0, 40)
+InfoLabel.BackgroundTransparency = 1
+InfoLabel.Text = "deadzone classic script\nTG Channel: @Ai_CHEAT_roblox"
+InfoLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
+InfoLabel.TextSize = 11
+InfoLabel.Font = Enum.Font.Gotham
+InfoLabel.Parent = MiscPage
+
+-- SETTINGS PAGE
+CreateSelector(SettingsPage, "Theme", "Theme", {"Rainbow", "Red", "Blue", "Green", "Purple"})
+
+local CopyLinkBtn = Instance.new("TextButton")
+CopyLinkBtn.Name = "CopyLinkBtn"
+CopyLinkBtn.Size = UDim2.new(1, -6, 0, 32)
+CopyLinkBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 42)
+CopyLinkBtn.Text = "Copy Telegram Link"
+CopyLinkBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CopyLinkBtn.TextSize = 11
+CopyLinkBtn.Font = Enum.Font.GothamBold
+CopyLinkBtn.Parent = SettingsPage
+
+local CopyCorner = Instance.new("UICorner")
+CopyCorner.CornerRadius = UDim.new(0, 6)
+CopyCorner.Parent = CopyLinkBtn
+
+CopyLinkBtn.MouseButton1Click:Connect(function()
+    if setclipboard then
+        setclipboard("https://t.me/Ai_CHEAT_roblox")
+        CopyLinkBtn.Text = "Copied!"
+        task.wait(1.5)
+        CopyLinkBtn.Text = "Copy Telegram Link"
+    else
+        CopyLinkBtn.Text = "Clipboard Not Supported"
+        task.wait(1.5)
+        CopyLinkBtn.Text = "Copy Telegram Link"
+    end
+end)
+
+-- =================================================================
+-- LOGIC & CORE FUNCTIONS
+-- =================================================================
+local function NewText(Size)
+    local T = Drawing.new("Text")
+    T.Visible = false
+    T.Center = true
+    T.Outline = true
+    T.Font = 2
+    T.Size = Size
+    T.Color = Color3.new(1, 1, 1)
+    return T
+end
+
+local function NewLine()
+    local L = Drawing.new("Line")
+    L.Visible = false
+    L.Thickness = 1.5
+    L.Transparency = 1
+    return L
+end
+
+local function HideESP(E)
+    for _, v in pairs(E) do
+        v.Visible = false
+    end
+end
+
+local function CreateESP(Player)
+    if Player == LocalPlayer then return end
+    ESP[Player] = {
+        Top = NewLine(),
+        Bottom = NewLine(),
+        Left = NewLine(),
+        Right = NewLine(),
+        HealthBG = NewLine(),
+        HealthMain = NewLine(),
+        Tracer = NewLine(),
+        Name = NewText(14),
+        Distance = NewText(12)
+    }
+end
+
+local function RemoveESP(Player)
+    if ESP[Player] then
+        for _, v in pairs(ESP[Player]) do
+            v:Remove()
+        end
+        ESP[Player] = nil
+    end
+    if Highlights[Player] then
+        Highlights[Player]:Destroy()
+        Highlights[Player] = nil
+    end
+    CachedModels[Player] = nil
+end
+
+local function FindModel(Player)
+    if Player.Character then return Player.Character end
+    local Model = workspace:FindFirstChild(Player.Name, true)
+    if Model and Model:IsA("Model") then
+        return Model
+    end
+    return nil
+end
+
+local function CreateHighlight(Player, Model)
+    if Highlights[Player] then
+        Highlights[Player]:Destroy()
+    end
+    local H = Instance.new("Highlight")
+    H.Name = "PlayerESP"
+    H.FillTransparency = 0.65
+    H.OutlineTransparency = 0
+    H.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    H.Parent = Model
+    H.Adornee = Model
+    Highlights[Player] = H
+end
+
+local function UpdateModel(Player)
+    local Model = FindModel(Player)
+    if Model then
+        CachedModels[Player] = Model
+        CreateHighlight(Player, Model)
+    end
+end
+
+local function SetupPlayer(Player)
+    if Player == LocalPlayer then return end
+    CreateESP(Player)
+    UpdateModel(Player)
+
+    Player.CharacterAdded:Connect(function(Char)
+        CachedModels[Player] = Char
+        task.wait(1)
+        UpdateModel(Player)
+    end)
+end
+
+for _, Player in pairs(Players:GetPlayers()) do
+    SetupPlayer(Player)
+end
+
+Players.PlayerAdded:Connect(SetupPlayer)
+Players.PlayerRemoving:Connect(RemoveESP)
+
+task.spawn(function()
+    while true do
+        for _, Player in pairs(Players:GetPlayers()) do
+            if Player ~= LocalPlayer then
+                local Model = CachedModels[Player]
+                if not Model or not Model.Parent then
+                    UpdateModel(Player)
+                end
+            end
+        end
+        task.wait(2)
+    end
+end)
+
+local function ResetHeads()
+    for Head, Size in pairs(OriginalHeadSizes) do
+        if Head and Head.Parent then
+            Head.Size = Size
+        else
+            OriginalHeadSizes[Head] = nil
+        end
+    end
+end
+
+local function IsVisible(Model, Part)
+    local Origin = Camera.CFrame.Position
+    local Direction = Part.Position - Origin
+    local Params = RaycastParams.new()
+    Params.FilterType = Enum.RaycastFilterType.Blacklist
+    
+    local filterList = {Model}
+    if LocalPlayer.Character then
+        table.insert(filterList, LocalPlayer.Character)
+    end
+    Params.FilterDescendantsInstances = filterList
+
+    local Result = workspace:Raycast(Origin, Direction, Params)
+    return Result == nil
+end
+
+local function GetPrediction(Distance)
+    if Distance >= 3000 then return 2 end
+    if Distance >= 2000 then return 1.50 end
+    if Distance >= 1000 then return 1 end
+    if Distance >= 500 then return 0.35 end
+    return Settings.BasePrediction
+end
+
+-- =================================================================
+-- MAIN LOOP & THEMES
+-- =================================================================
+RunService.RenderStepped:Connect(function(deltaTime)
+    local ViewportSize = Camera.ViewportSize
+    local Center = Vector2.new(ViewportSize.X / 2, ViewportSize.Y / 2)
+
+    -- ЦВЕТОВЫЕ ТЕМЫ
+    local ThemeColor = Color3.fromRGB(0, 255, 170)
+    
+    if Settings.Theme == "Rainbow" then
+        RainbowHue = RainbowHue + 0.004
+        if RainbowHue > 1 then RainbowHue = 0 end
+        ThemeColor = Color3.fromHSV(RainbowHue, 0.9, 1)
+    elseif Settings.Theme == "Red" then
+        ThemeColor = Color3.fromRGB(255, 40, 40)
+    elseif Settings.Theme == "Blue" then
+        ThemeColor = Color3.fromRGB(0, 150, 255)
+    elseif Settings.Theme == "Green" then
+        ThemeColor = Color3.fromRGB(40, 220, 80)
+    elseif Settings.Theme == "Purple" then
+        ThemeColor = Color3.fromRGB(170, 0, 255)
+    end
+
+    MainUIStroke.Color = ThemeColor
+    ToggleOpenStroke.Color = ThemeColor
+
+    for _, stroke in pairs(ThemeStrokes) do
+        stroke.Color = ThemeColor
+    end
+
+    for _, fill in pairs(ThemeFills) do
+        fill.BackgroundColor3 = ThemeColor
+    end
+
+    -- Обновление позиции и цвета круглого FOV
+    Circle.Position = Center
+    CircleOutline.Position = Center
+    Dot.Position = Center
+
+    Circle.Color = ThemeColor
+    CircleOutline.Color = ThemeColor
+    Dot.Color = ThemeColor
+    Line.Color = ThemeColor
+    NameTag.Color = ThemeColor
+
+    local isAimbotOn = Settings.Aimbot
+    Circle.Visible = isAimbotOn
+    CircleOutline.Visible = isAimbotOn
+    Dot.Visible = isAimbotOn
+
+    -- Позиционирование меток (Crosshair Ticks) как на фото
+    local tickOffset = math.clamp(Settings.FOV * 0.45, 15, 60)
+    local tickLength = 10
+
+    Ticks.Top.From = Vector2.new(Center.X, Center.Y - tickOffset)
+    Ticks.Top.To = Vector2.new(Center.X, Center.Y - tickOffset - tickLength)
+
+    Ticks.Bottom.From = Vector2.new(Center.X, Center.Y + tickOffset)
+    Ticks.Bottom.To = Vector2.new(Center.X, Center.Y + tickOffset + tickLength)
+
+    Ticks.Left.From = Vector2.new(Center.X - tickOffset, Center.Y)
+    Ticks.Left.To = Vector2.new(Center.X - tickOffset - tickLength, Center.Y)
+
+    Ticks.Right.From = Vector2.new(Center.X + tickOffset, Center.Y)
+    Ticks.Right.To = Vector2.new(Center.X + tickOffset + tickLength, Center.Y)
+
+    for _, tick in pairs(Ticks) do
+        tick.Color = ThemeColor
+        tick.Visible = isAimbotOn
+    end
+
+    -- AIMBOT LOGIC
+    local ClosestTarget = nil
+    local ClosestHead = nil
+    local ClosestDistance = math.huge
+    local ClosestScreenPos = nil
+    local ClosestPlayerName = nil
+    local ClosestWorldDistance = nil
+
+    if Settings.Aimbot then
+        for Player, Model in pairs(CachedModels) do
+            if Model and Model.Parent then
+                local Humanoid = Model:FindFirstChildOfClass("Humanoid")
+                local TargetPartName = (Settings.AimPart == "Torso") and "HumanoidRootPart" or "Head"
+                local TargetPart = Model:FindFirstChild(TargetPartName, true)
+                local Head = Model:FindFirstChild("Head", true)
+
+                if Humanoid and Humanoid.Health > 0 and TargetPart then
+                    local Character = LocalPlayer.Character
+                    if Character and Character:FindFirstChild("HumanoidRootPart") then
+                        local WorldDist = (Character.HumanoidRootPart.Position - TargetPart.Position).Magnitude
+                        
+                        if WorldDist <= Settings.MaxAimDistance then
+                            local Pos, Visible = Camera:WorldToViewportPoint(TargetPart.Position)
+                            if Visible and IsVisible(Model, TargetPart) then
+                                local ScreenPos = Vector2.new(Pos.X, Pos.Y)
+                                local ScreenDist = (ScreenPos - Center).Magnitude
+
+                                if ScreenDist <= Settings.FOV and ScreenDist < ClosestDistance then
+                                    ClosestDistance = ScreenDist
+                                    ClosestTarget = TargetPart
+                                    ClosestHead = Head
+                                    ClosestScreenPos = ScreenPos
+                                    ClosestPlayerName = Player.Name
+                                    ClosestWorldDistance = WorldDist
+
+                                    if Head and not OriginalHeadSizes[Head] then
+                                        OriginalHeadSizes[Head] = Head.Size
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- BIG HEADS LOGIC
+    ResetHeads()
+    if Settings.BigHeads and ClosestHead then
+        ClosestHead.Size = Vector3.new(2, 2, 2)
+    end
+
+    -- AIMBOT TARGET INDICATOR & CAMERA LERP
+    if Settings.Aimbot and ClosestScreenPos then
+        Line.Visible = true
+        Line.From = Center
+        Line.To = ClosestScreenPos
+
+        NameTag.Visible = true
+        NameTag.Text = ClosestPlayerName
+        NameTag.Position = Vector2.new(ClosestScreenPos.X, ClosestScreenPos.Y - 25)
+    else
+        Line.Visible = false
+        NameTag.Visible = false
+    end
+
+    if Settings.Aimbot and ClosestTarget then
+        local Prediction = GetPrediction(ClosestWorldDistance or 0)
+        local PredictedPosition = ClosestTarget.Position + (ClosestTarget.Velocity * Prediction)
+
+        Camera.CFrame = Camera.CFrame:Lerp(
+            CFrame.new(Camera.CFrame.Position, PredictedPosition),
+            Settings.Smoothness
+        )
+    end
+
+    -- ESP LOGIC
+    local Character = LocalPlayer.Character
+    local LocalRoot = Character and Character:FindFirstChild("HumanoidRootPart")
+
+    for Player, E in pairs(ESP) do
+        local Model = CachedModels[Player]
+        local Highlight = Highlights[Player]
+
+        if Highlight then
+            Highlight.Enabled = Settings.Highlight
+        end
+
+        if not Model or not LocalRoot then
+            HideESP(E)
+            continue
+        end
+
+        local Root = Model:FindFirstChild("HumanoidRootPart", true) or Model:FindFirstChild("Head", true) or Model.PrimaryPart
+        local Humanoid = Model:FindFirstChildOfClass("Humanoid")
+
+        if not Root or not Humanoid or Humanoid.Health <= 0 then
+            HideESP(E)
+            continue
+        end
+
+        local Distance = (LocalRoot.Position - Root.Position).Magnitude
+
+        if Distance > Settings.MaxEspDistance then
+            HideESP(E)
+            if Highlight then Highlight.Enabled = false end
+            continue
+        end
+
+        local Pos, Visible = Camera:WorldToViewportPoint(Root.Position)
+        if not Visible then
+            HideESP(E)
+            continue
+        end
+
+        local Color = Color3.fromRGB(0, 255, 170)
+        if Distance <= 1000 then Color = Color3.fromRGB(255, 170, 0) end
+        if Distance <= 500 then Color = Color3.fromRGB(255, 0, 0) end
+
+        if Highlight then
+            Highlight.FillColor = Color
+            Highlight.OutlineColor = Color
+        end
+
+        local Scale = math.clamp(1200 / Pos.Z, 0.7, 1.3)
+        local Width = 15 * Scale
+        local Height = 26 * Scale
+        local X, Y = Pos.X, Pos.Y
+
+        -- 1. BOX ESP
+        if Settings.ESP_Box then
+            E.Top.From = Vector2.new(X - Width, Y - Height)
+            E.Top.To = Vector2.new(X + Width, Y - Height)
+
+            E.Bottom.From = Vector2.new(X - Width, Y + Height)
+            E.Bottom.To = Vector2.new(X + Width, Y + Height)
+
+            E.Left.From = Vector2.new(X - Width, Y - Height)
+            E.Left.To = Vector2.new(X - Width, Y + Height)
+
+            E.Right.From = Vector2.new(X + Width, Y - Height)
+            E.Right.To = Vector2.new(X + Width, Y + Height)
+
+            E.Top.Color, E.Bottom.Color, E.Left.Color, E.Right.Color = Color, Color, Color, Color
+            E.Top.Visible, E.Bottom.Visible, E.Left.Visible, E.Right.Visible = true, true, true, true
+        else
+            E.Top.Visible, E.Bottom.Visible, E.Left.Visible, E.Right.Visible = false, false, false, false
+        end
+
+        -- 2. HEALTHBAR ESP
+        if Settings.ESP_Health then
+            local HealthPercent = math.clamp(Humanoid.Health / Humanoid.MaxHealth, 0, 1)
+            local BarX = X - Width - 5
+            local BarHeight = Height * 2
+            local BarBottom = Y + Height
+            local BarTop = BarBottom - (BarHeight * HealthPercent)
+
+            E.HealthBG.From = Vector2.new(BarX, Y - Height)
+            E.HealthBG.To = Vector2.new(BarX, BarBottom)
+            E.HealthBG.Color = Color3.fromRGB(30, 30, 30)
+            E.HealthBG.Thickness = 3
+            E.HealthBG.Visible = true
+
+            E.HealthMain.From = Vector2.new(BarX, BarBottom)
+            E.HealthMain.To = Vector2.new(BarX, BarTop)
+            E.HealthMain.Color = Color3.fromHSV(HealthPercent * 0.3, 0.9, 1)
+            E.HealthMain.Thickness = 1.5
+            E.HealthMain.Visible = true
+        else
+            E.HealthBG.Visible = false
+            E.HealthMain.Visible = false
+        end
+
+        -- 3. TRACERS ESP
+        if Settings.ESP_Tracer then
+            E.Tracer.From = Vector2.new(ViewportSize.X / 2, ViewportSize.Y)
+            E.Tracer.To = Vector2.new(X, Y + Height)
+            E.Tracer.Color = Color
+            E.Tracer.Visible = true
+        else
+            E.Tracer.Visible = false
+        end
+
+        -- 4. NAME ESP
+        if Settings.ESP_Name then
+            E.Name.Position = Vector2.new(X, Y - Height - 14)
+            E.Name.Text = Player.Name
+            E.Name.Visible = true
+        else
+            E.Name.Visible = false
+        end
+
+        -- 5. DISTANCE ESP
+        if Settings.ESP_Distance then
+            E.Distance.Position = Vector2.new(X, Y + Height + 2)
+            E.Distance.Text = math.floor(Distance) .. "m"
+            E.Distance.Visible = true
+        else
+            E.Distance.Visible = false
+        end
+    end
+end)
