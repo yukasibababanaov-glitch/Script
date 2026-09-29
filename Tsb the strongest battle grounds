@@ -1,0 +1,519 @@
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Настройки Aimbot & Speed
+local aim = true
+local part = "Head"
+local smooth = 0.15
+local sel = "ВСЕ"
+local tpE = false
+local tpV = 50
+local FontStyle = Enum.Font.SourceSansBold
+
+-- Настройки ESP
+local espEnabled = true
+local espHealth = true
+local espNames = true
+local espDist = true
+local espChams = true
+
+local mainPurple = Color3.fromRGB(160, 32, 240)
+local darkBg = Color3.fromRGB(18, 15, 23)
+local cardBg = Color3.fromRGB(28, 24, 38)
+
+-- Поиск целей
+local function getP()
+	local t = {"ВСЕ"}
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= LocalPlayer then table.insert(t, p.Name) end
+	end
+	return t
+end
+
+local function getC()
+	local c, s = nil, math.huge
+	if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then return nil end
+	local mP = LocalPlayer.Character.HumanoidRootPart.Position
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild(part) and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
+			if sel ~= "ВСЕ" and p.Name ~= sel then continue end
+			local d = (mP - p.Character[part].Position).Magnitude
+			if d < s then s, c = d, p end
+		end
+	end
+	return c
+end
+
+-- Удаление старого UI
+if PlayerGui:FindFirstChild("AimbotTsbGui") then
+	PlayerGui.AimbotTsbGui:Destroy()
+end
+
+local sg = Instance.new("ScreenGui", PlayerGui)
+sg.Name = "AimbotTsbGui"
+sg.ResetOnSpawn = false
+
+-- Главное окно
+local mf = Instance.new("Frame", sg)
+mf.Size = UDim2.new(0, 500, 0, 380)
+mf.Position = UDim2.new(0.5, -250, 0.4, -190)
+mf.BackgroundColor3 = darkBg
+mf.Active = true
+Instance.new("UICorner", mf).CornerRadius = UDim.new(0, 14)
+
+local mfStroke = Instance.new("UIStroke", mf)
+mfStroke.Color = mainPurple
+mfStroke.Thickness = 2
+
+-- Drag
+local function drag(f)
+	local d, di, ds, sp
+	f.InputBegan:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+			d, ds, sp = true, i.Position, f.Position
+			i.Changed:Connect(function()
+				if i.UserInputState == Enum.UserInputState.End then d = false end
+			end)
+		end
+	end)
+	f.InputChanged:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch then di = i end
+	end)
+	UserInputService.InputChanged:Connect(function(i)
+		if i == di and d then
+			local dl = i.Position - ds
+			f.Position = UDim2.new(sp.X.Scale, sp.X.Offset + dl.X, sp.Y.Scale, sp.Y.Offset + dl.Y)
+		end
+	end)
+end
+drag(mf)
+
+-- Шапка
+local hd = Instance.new("Frame", mf)
+hd.Size = UDim2.new(1, 0, 0, 48)
+hd.BackgroundTransparency = 1
+
+local tt = Instance.new("TextLabel", hd)
+tt.Size = UDim2.new(0, 200, 0, 20)
+tt.Position = UDim2.new(0, 16, 0, 8)
+tt.BackgroundTransparency = 1
+tt.Text, tt.TextColor3, tt.TextSize, tt.Font = "Aimbot tsb", Color3.fromRGB(255, 255, 255), 18, FontStyle
+tt.TextXAlignment = Enum.TextXAlignment.Left
+
+local subtt = Instance.new("TextLabel", hd)
+subtt.Size = UDim2.new(0, 200, 0, 15)
+subtt.Position = UDim2.new(0, 16, 0, 28)
+subtt.BackgroundTransparency = 1
+subtt.Text, subtt.TextColor3, subtt.TextSize, subtt.Font = "Tg: Ai_cheat_roblox", Color3.fromRGB(150, 150, 150), 12, FontStyle
+subtt.TextXAlignment = Enum.TextXAlignment.Left
+
+local cb = Instance.new("TextButton", hd)
+cb.Size = UDim2.new(0, 32, 0, 32)
+cb.Position = UDim2.new(1, -40, 0, 8)
+cb.BackgroundTransparency = 1
+cb.Text, cb.TextColor3, cb.TextSize, cb.Font = "✕", Color3.fromRGB(255, 255, 255), 18, FontStyle
+
+-- Навигация
+local sideNav = Instance.new("Frame", mf)
+sideNav.Size = UDim2.new(0, 120, 1, -55)
+sideNav.Position = UDim2.new(0, 10, 0, 50)
+sideNav.BackgroundTransparency = 1
+
+local sideList = Instance.new("UIListLayout", sideNav)
+sideList.Padding = UDim.new(0, 8)
+
+local pageContainer = Instance.new("Frame", mf)
+pageContainer.Size = UDim2.new(1, -145, 1, -55)
+pageContainer.Position = UDim2.new(0, 135, 0, 50)
+pageContainer.BackgroundTransparency = 1
+
+local pages = {}
+
+local function createTab(name)
+	local btn = Instance.new("TextButton", sideNav)
+	btn.Size = UDim2.new(1, 0, 0, 36)
+	btn.BackgroundColor3 = cardBg
+	btn.Text, btn.TextColor3, btn.TextSize, btn.Font = name, Color3.fromRGB(180, 180, 180), 13, FontStyle
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+
+	local page = Instance.new("ScrollingFrame", pageContainer)
+	page.Size = UDim2.new(1, 0, 1, 0)
+	page.BackgroundTransparency = 1
+	page.Visible = false
+	page.ScrollBarThickness = 3
+	page.CanvasSize = UDim2.new(0, 0, 0, 380)
+
+	local layout = Instance.new("UIListLayout", page)
+	layout.Padding = UDim.new(0, 10)
+
+	pages[name] = {btn = btn, page = page}
+
+	btn.MouseButton1Click:Connect(function()
+		for _, p in pairs(pages) do
+			p.page.Visible = false
+			p.btn.BackgroundColor3 = cardBg
+			p.btn.TextColor3 = Color3.fromRGB(180, 180, 180)
+		end
+		page.Visible = true
+		btn.BackgroundColor3 = mainPurple
+		btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	end)
+
+	return page
+end
+
+local combatPage = createTab("Combat")
+local movementPage = createTab("Movement")
+local visualsPage = createTab("Visuals")
+local settingsPage = createTab("Settings")
+
+pages["Combat"].page.Visible = true
+pages["Combat"].btn.BackgroundColor3 = mainPurple
+pages["Combat"].btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+
+-- Элементы управления UI
+local function createToggle(parent, text, defaultState, callback)
+	local frame = Instance.new("Frame", parent)
+	frame.Size = UDim2.new(1, -10, 0, 40)
+	frame.BackgroundColor3 = cardBg
+	Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+
+	local lbl = Instance.new("TextLabel", frame)
+	lbl.Size = UDim2.new(0.7, 0, 1, 0)
+	lbl.Position = UDim2.new(0, 12, 0, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = text
+	lbl.TextColor3, lbl.TextSize, lbl.Font = Color3.fromRGB(240, 240, 240), 13, FontStyle
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+
+	local btn = Instance.new("TextButton", frame)
+	btn.Size = UDim2.new(0, 55, 0, 26)
+	btn.Position = UDim2.new(1, -65, 0.5, -13)
+	btn.BackgroundColor3 = defaultState and mainPurple or Color3.fromRGB(50, 45, 60)
+	btn.Text = defaultState and "ON" or "OFF"
+	btn.TextColor3 = defaultState and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(160, 160, 160)
+	btn.TextSize = 12
+	btn.Font = FontStyle
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+	local state = defaultState
+	btn.MouseButton1Click:Connect(function()
+		state = not state
+		btn.Text = state and "ON" or "OFF"
+		btn.BackgroundColor3 = state and mainPurple or Color3.fromRGB(50, 45, 60)
+		btn.TextColor3 = state and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(160, 160, 160)
+		callback(state)
+	end)
+end
+
+local function createSelector(parent, text, defaultVal, callback)
+	local frame = Instance.new("Frame", parent)
+	frame.Size = UDim2.new(1, -10, 0, 40)
+	frame.BackgroundColor3 = cardBg
+	Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+
+	local lbl = Instance.new("TextLabel", frame)
+	lbl.Size = UDim2.new(0.5, 0, 1, 0)
+	lbl.Position = UDim2.new(0, 12, 0, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = text
+	lbl.TextColor3, lbl.TextSize, lbl.Font = Color3.fromRGB(240, 240, 240), 13, FontStyle
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+
+	local btn = Instance.new("TextButton", frame)
+	btn.Size = UDim2.new(0, 90, 0, 26)
+	btn.Position = UDim2.new(1, -100, 0.5, -13)
+	btn.BackgroundColor3 = Color3.fromRGB(50, 45, 60)
+	btn.Text = tostring(defaultVal)
+	btn.TextColor3 = mainPurple
+	btn.TextSize = 12
+	btn.Font = FontStyle
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+	btn.MouseButton1Click:Connect(function()
+		local newVal = callback()
+		btn.Text = tostring(newVal)
+	end)
+end
+
+local function createSlider(parent, title, min, max, defaultVal, suffix, callback)
+	local frame = Instance.new("Frame", parent)
+	frame.Size = UDim2.new(1, -10, 0, 50)
+	frame.BackgroundColor3 = cardBg
+	Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+
+	local lbl = Instance.new("TextLabel", frame)
+	lbl.Size = UDim2.new(0.6, 0, 0, 20)
+	lbl.Position = UDim2.new(0, 12, 0, 4)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = title
+	lbl.TextColor3, lbl.TextSize, lbl.Font = Color3.fromRGB(240, 240, 240), 12, FontStyle
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+
+	local valLbl = Instance.new("TextLabel", frame)
+	valLbl.Size = UDim2.new(0.3, 0, 0, 20)
+	valLbl.Position = UDim2.new(0.7, -12, 0, 4)
+	valLbl.BackgroundTransparency = 1
+	valLbl.Text = tostring(defaultVal) .. (suffix or "")
+	valLbl.TextColor3, valLbl.TextSize, valLbl.Font = mainPurple, 12, FontStyle
+	valLbl.TextXAlignment = Enum.TextXAlignment.Right
+
+	local bar = Instance.new("Frame", frame)
+	bar.Size = UDim2.new(1, -24, 0, 6)
+	bar.Position = UDim2.new(0, 12, 0, 32)
+	bar.BackgroundColor3 = Color3.fromRGB(50, 45, 60)
+	Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
+
+	local fill = Instance.new("Frame", bar)
+	fill.Size = UDim2.new((defaultVal - min) / (max - min), 0, 1, 0)
+	fill.BackgroundColor3 = mainPurple
+	Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+	local knob = Instance.new("Frame", fill)
+	knob.Size = UDim2.new(0, 14, 0, 14)
+	knob.Position = UDim2.new(1, -7, 0.5, -7)
+	knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+	local dragging = false
+	local function update(input)
+		local pos = math.clamp((input.Position.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+		fill.Size = UDim2.new(pos, 0, 1, 0)
+		local val = math.floor((min + (max - min) * pos) * 10) / 10
+		valLbl.Text = tostring(val) .. (suffix or "")
+		callback(val)
+	end
+
+	bar.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			update(input)
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			update(input)
+		end
+	end)
+end
+
+-- Переключатели
+createToggle(combatPage, "Aimbot", aim, function(v) aim = v end)
+createSelector(combatPage, "Aim Target", part, function()
+	part = part == "Head" and "HumanoidRootPart" or "Head"
+	return part
+end)
+
+local idx = 1
+createSelector(combatPage, "Select Target", sel, function()
+	local pl = getP()
+	idx = idx + 1
+	if idx > #pl then idx = 1 end
+	sel = pl[idx]
+	return sel
+end)
+createSlider(combatPage, "Aim Smoothness", 0.01, 1, smooth, "", function(v) smooth = v end)
+
+createToggle(movementPage, "TP Speed", tpE, function(v) tpE = v end)
+createSlider(movementPage, "TP Speed Power", 1, 200, tpV, "m", function(v) tpV = v end)
+
+createToggle(visualsPage, "Enable ESP", espEnabled, function(v) espEnabled = v end)
+createToggle(visualsPage, "Show Names", espNames, function(v) espNames = v end)
+createToggle(visualsPage, "Show Health HP Bar", espHealth, function(v) espHealth = v end)
+createToggle(visualsPage, "Show Distance", espDist, function(v) espDist = v end)
+createToggle(visualsPage, "Chams (Highlight)", espChams, function(v) espChams = v end)
+
+-- Settings Telegram
+local tgFrame = Instance.new("Frame", settingsPage)
+tgFrame.Size = UDim2.new(1, -10, 0, 75)
+tgFrame.BackgroundColor3 = cardBg
+Instance.new("UICorner", tgFrame).CornerRadius = UDim.new(0, 8)
+
+local tgLabel = Instance.new("TextLabel", tgFrame)
+tgLabel.Size = UDim2.new(1, 0, 0, 30)
+tgLabel.Position = UDim2.new(0, 0, 0, 5)
+tgLabel.BackgroundTransparency = 1
+tgLabel.Text = "https://t.me/Ai_CHEAT_roblox"
+tgLabel.TextColor3 = mainPurple
+tgLabel.TextSize = 13
+tgLabel.Font = FontStyle
+
+local copyBtn = Instance.new("TextButton", tgFrame)
+copyBtn.Size = UDim2.new(0.8, 0, 0, 28)
+copyBtn.Position = UDim2.new(0.1, 0, 0.5, 0)
+copyBtn.BackgroundColor3 = mainPurple
+copyBtn.Text, copyBtn.TextColor3, copyBtn.TextSize, copyBtn.Font = "Скопировать ссылку", Color3.fromRGB(255, 255, 255), 12, FontStyle
+Instance.new("UICorner", copyBtn).CornerRadius = UDim.new(0, 6)
+
+copyBtn.MouseButton1Click:Connect(function()
+	if setclipboard then
+		setclipboard("https://t.me/Ai_CHEAT_roblox")
+		copyBtn.Text = "Скопировано!"
+		task.wait(2)
+		copyBtn.Text = "Скопировать ссылку"
+	end
+end)
+
+local ob = Instance.new("TextButton", sg)
+ob.Size = UDim2.new(0, 50, 0, 50)
+ob.Position = UDim2.new(0.05, 0, 0.2, 0)
+ob.BackgroundColor3 = mainPurple
+ob.Text, ob.TextColor3, ob.TextSize, ob.Font, ob.Visible, ob.Active = "МЕНЮ", Color3.fromRGB(255, 255, 255), 11, FontStyle, false, true
+Instance.new("UICorner", ob).CornerRadius = UDim.new(1, 0)
+drag(ob)
+
+cb.MouseButton1Click:Connect(function() mf.Visible, ob.Visible = false, true end)
+ob.MouseButton1Click:Connect(function() mf.Visible, ob.Visible = true, false end)
+
+----------------------------------------------------
+-- ЧИСТЫЙ ESP МОДУЛЬ (ХИЛБАР СЛЕВА, БЕЗ БОКСОВ)
+----------------------------------------------------
+local function applyESP(player)
+	if player == LocalPlayer then return end
+
+	local function characterAdded(char)
+		local root = char:WaitForChild("HumanoidRootPart", 10)
+		local humanoid = char:WaitForChild("Humanoid", 10)
+		if not root or not humanoid then return end
+
+		-- BillboardGui над персонажем
+		local bb = Instance.new("BillboardGui")
+		bb.Name = "ESP_Billboard"
+		bb.Size = UDim2.new(0, 180, 0, 30)
+		bb.StudsOffset = Vector3.new(0, 3.5, 0)
+		bb.AlwaysOnTop = true
+		bb.Adornee = root
+		bb.Parent = root
+
+		-- Контейнер
+		local container = Instance.new("Frame", bb)
+		container.Size = UDim2.new(1, 0, 1, 0)
+		container.BackgroundTransparency = 1
+
+		-- Хилбар (Слева)
+		local healthBg = Instance.new("Frame", container)
+		healthBg.Name = "HealthBg"
+		healthBg.Size = UDim2.new(0, 4, 0, 24)
+		healthBg.Position = UDim2.new(0, 10, 0.5, -12)
+		healthBg.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+		healthBg.BorderSizePixel = 1
+		healthBg.BorderColor3 = Color3.fromRGB(0, 0, 0)
+
+		local healthFill = Instance.new("Frame", healthBg)
+		healthFill.Name = "HealthFill"
+		healthFill.Size = UDim2.new(1, 0, 1, 0)
+		healthFill.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+		healthFill.BorderSizePixel = 0
+
+		-- Текст (Справа от Хилбара)
+		local infoLabel = Instance.new("TextLabel", container)
+		infoLabel.Name = "InfoLabel"
+		infoLabel.Size = UDim2.new(1, -22, 1, 0)
+		infoLabel.Position = UDim2.new(0, 20, 0, 0)
+		infoLabel.BackgroundTransparency = 1
+		infoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		infoLabel.TextStrokeTransparency = 0
+		infoLabel.TextSize = 13
+		infoLabel.Font = FontStyle
+		infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+		-- Chams (Подсветка)
+		local highlight = Instance.new("Highlight")
+		highlight.Name = "ESP_Highlight"
+		highlight.Adornee = char
+		highlight.FillTransparency = 0.5
+		highlight.OutlineTransparency = 0
+		highlight.FillColor = mainPurple
+		highlight.Parent = char
+
+		-- Обновление значений в реальном времени
+		local conn
+		conn = RunService.RenderStepped:Connect(function()
+			if not char or not char.Parent or not root or not humanoid or humanoid.Health <= 0 then
+				bb:Destroy()
+				if highlight then highlight:Destroy() end
+				if conn then conn:Disconnect() end
+				return
+			end
+
+			if espEnabled then
+				bb.Enabled = true
+				highlight.Enabled = espChams
+
+				-- Обновление Хилбара
+				if espHealth then
+					healthBg.Visible = true
+					local hpPercent = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
+					healthFill.Size = UDim2.new(1, 0, hpPercent, 0)
+					healthFill.Position = UDim2.new(0, 0, 1 - hpPercent, 0)
+
+					if hpPercent > 0.5 then
+						healthFill.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+					elseif hpPercent > 0.2 then
+						healthFill.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+					else
+						healthFill.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+					end
+				else
+					healthBg.Visible = false
+				end
+
+				-- Обновление текста
+				if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+					local dist = math.floor((LocalPlayer.Character.HumanoidRootPart.Position - root.Position).Magnitude)
+					local str = ""
+					if espNames then str = str .. player.Name .. " " end
+					if espDist then str = str .. "[" .. tostring(dist) .. "m]" end
+					infoLabel.Text = str
+					infoLabel.Visible = (espNames or espDist)
+				else
+					infoLabel.Visible = false
+				end
+			else
+				bb.Enabled = false
+				highlight.Enabled = false
+			end
+		end)
+	end
+
+	if player.Character then
+		task.spawn(characterAdded, player.Character)
+	end
+	player.CharacterAdded:Connect(characterAdded)
+end
+
+-- Запуск для всех игроков
+for _, p in ipairs(Players:GetPlayers()) do
+	applyESP(p)
+end
+Players.PlayerAdded:Connect(applyESP)
+
+-- Рендер-цикл Aimbot & Speed
+RunService.RenderStepped:Connect(function()
+	if aim then
+		local t = getC()
+		if t and t.Character and t.Character:FindFirstChild(part) and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+			Camera.CFrame = Camera.CFrame:Lerp(CFrame.lookAt(Camera.CFrame.Position, t.Character[part].Position), smooth)
+		end
+	end
+
+	if tpE and LocalPlayer.Character then
+		local h, r = LocalPlayer.Character:FindFirstChild("Humanoid"), LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+		if h and r and h.MoveDirection.Magnitude > 0 then
+			r.CFrame = r.CFrame + (h.MoveDirection * (tpV / 100))
+		end
+	end
+end)
